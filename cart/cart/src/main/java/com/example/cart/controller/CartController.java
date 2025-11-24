@@ -164,7 +164,7 @@ public ResponseEntity<?> eliminarItem(
     }
 
     
-    // Response classes (mismo estilo que UsuarioController)
+    
     
     @Schema(description = "Respuesta de error estandarizada")
     public static class ErrorResponse {
