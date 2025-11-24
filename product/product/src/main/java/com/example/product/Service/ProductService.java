@@ -25,12 +25,17 @@ public class ProductService {
     // Crear un nuevo producto
     public Product crearProducto(Long idusuario, String token, String name, String description, double price, int stock, byte[] photo) {
 
-           // validar si el usuario existe antes de agregar el producto, enviando token
-        Map<String, Object> usuario = usuarioClient.obtenerUsuarioPorId(idusuario, token);
-        
-         if (usuario == null || usuario.isEmpty()) {
-            throw new RuntimeException("Usuario no encontrado, no se puede agregar el producto");
-        }
+        try {
+    // validar si el usuario existe antes de agregar el producto, enviando token
+    Map<String, Object> usuario = usuarioClient.obtenerUsuarioPorId(idusuario, token);
+
+    // Si llegó aquí, el usuario existe
+    System.out.println("Usuario encontrado: " + usuario);
+
+} catch (RuntimeException e) {
+    // Aquí entra si el WebClient devolvió 4xx o 5xx
+    throw new RuntimeException("Usuario no encontrado, no se puede agregar el producto", e);
+}
 
         // Validaciones básicas
         if (name == null || name.trim().isEmpty()) {

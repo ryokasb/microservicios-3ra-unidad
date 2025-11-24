@@ -98,7 +98,11 @@ public class UserService {
         return usuarioRepository.findById(id)
         .orElseThrow(()-> new RuntimeException("Usuario no encontrado"));
     }
-
+      public Long getUsuarioIdByUsername(String username) {
+          return usuarioRepository.findByUsername(username)
+            .map(User::getId)
+            .orElseThrow(() -> new RuntimeException("Usuario no encontrado"));
+     }
     //metodo para buscar todos los usuarios
     public List<User> buscarUsuarios(){
         return usuarioRepository.findAll();

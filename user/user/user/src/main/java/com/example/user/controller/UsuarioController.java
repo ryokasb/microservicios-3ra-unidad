@@ -203,6 +203,36 @@ public class UsuarioController {
         }
     }
 
+ @Operation(summary = "Buscar usuario por username", description = "Devuelve el ID del usuario por su username")
+@ApiResponses(value = {
+    @ApiResponse(responseCode = "200", description = "ID del usuario encontrado"),
+    @ApiResponse(responseCode = "404", description = "Usuario no encontrado"),
+    @ApiResponse(responseCode = "500", description = "Error interno del servidor")
+})
+@GetMapping("/users/id-by-username/{username}")
+public ResponseEntity<?> obtenerIdUsuarioPorUsername(@PathVariable String username, HttpServletRequest request) {
+    try {
+        String token = jwtUtil.extraerTokenDelHeader(request.getHeader("Authorization"));
+        if (token == null || !jwtUtil.esTokenValido(token)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("Acceso no autorizado", "Token inválido o faltante"));
+        }
+
+        
+        Long userId = usuarioService.getUsuarioIdByUsername(username);
+
+        
+        return ResponseEntity.ok(Map.of("id", userId));
+
+    } catch (RuntimeException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ErrorResponse("Usuario no encontrado", e.getMessage()));
+    } catch (Exception e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("Error interno", e.getMessage()));
+    }
+}
+
     @Operation(summary = "Obtener todos los roles", description = "Devuelve una lista con todos los roles disponibles")
     @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Lista de roles obtenida correctamente"),
