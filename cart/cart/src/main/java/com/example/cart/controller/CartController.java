@@ -47,7 +47,7 @@ public class CartController {
 
     // Agregar item
     
-    @   Operation(summary = "Agregar producto al carrito", description = "Añade un producto al carrito del usuario (se valida usuario via token)")
+    @Operation(summary = "Agregar producto al carrito", description = "Añade un producto al carrito del usuario (se valida usuario via token)")
         @ApiResponses(value = {
         @ApiResponse(responseCode = "200", description = "Producto agregado al carrito"),
         @ApiResponse(responseCode = "400", description = "Datos inválidos"),
