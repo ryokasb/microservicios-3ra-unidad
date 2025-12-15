@@ -24,19 +24,28 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        http
-            .csrf(csrf -> csrf.disable())
-            .authorizeHttpRequests(authz -> authz
-                .requestMatchers("/duodeal/auth/**").permitAll()
-                .requestMatchers("/duodeal/users").permitAll() 
-                .requestMatchers("/duodeal/users/**").permitAll()
-                .requestMatchers("/duodeal/roles/**").hasRole("ADMIN")
-                .anyRequest().authenticated()
-            )
-            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+    http
+        .csrf(csrf -> csrf.disable())
+        .authorizeHttpRequests(authz -> authz
+            .requestMatchers("/duodeal/auth/**").permitAll()
+            .requestMatchers("/duodeal/users").permitAll()
+            .requestMatchers("/duodeal/users/**").permitAll()
+            .requestMatchers("/duodeal/roles/**").hasRole("ADMIN")
 
-        return http.build();
-    }
+            .requestMatchers(
+                "/v3/api-docs/**",
+                "/swagger-ui/**",
+                "/swagger-ui.html",
+                "/swagger-resources/**",
+                "/webjars/**"
+            ).permitAll()
+
+            .anyRequest().authenticated()
+        )
+        .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+
+    return http.build();
+}
 }

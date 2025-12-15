@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.example.product.model.Product;
+import com.example.product.model.Dto.UpdateStockDto;
 import com.example.product.repository.ProductRepository;
 import com.example.product.webclient.usuarioclient;
 
@@ -22,20 +23,30 @@ public class ProductService {
      @Autowired
     private usuarioclient usuarioClient;
 
+
+
+
+
+
+
+
+
+
+
     // Crear un nuevo producto
     public Product crearProducto(Long idusuario, String token, String name, String description, double price, int stock, byte[] photo) {
 
-        try {
-    // validar si el usuario existe antes de agregar el producto, enviando token
-    Map<String, Object> usuario = usuarioClient.obtenerUsuarioPorId(idusuario, token);
+         try {
+       // validar si el usuario existe antes de agregar el producto, enviando token
+       Map<String, Object> usuario = usuarioClient.obtenerUsuarioPorId(idusuario, token);
 
-    // Si llegó aquí, el usuario existe
-    System.out.println("Usuario encontrado: " + usuario);
+        // Si llegó aquí, el usuario existe
+        System.out.println("Usuario encontrado: " + usuario);
 
-} catch (RuntimeException e) {
-    // Aquí entra si el WebClient devolvió 4xx o 5xx
-    throw new RuntimeException("Usuario no encontrado, no se puede agregar el producto", e);
-}
+      } catch (RuntimeException e) {
+      // Aquí entra si el WebClient devolvió 4xx o 5xx
+      throw new RuntimeException("Usuario no encontrado, no se puede agregar el producto", e);
+      }
 
         // Validaciones básicas
         if (name == null || name.trim().isEmpty()) {
@@ -59,30 +70,55 @@ public class ProductService {
         return productRepository.save(product);
     }
 
+
+
+
+
+
+
+
+
+
+
+
+    
     // Crear un nuevo producto solo para precarga
-    public Product crearProductoPrecarga(Long idusuario, String name, String description, double price, int stock, byte[] photo, String token) {
+public Product crearProductoPrecarga(
+        Long idusuario,
+        String name,
+        String description,
+        double price,
+        int stock,
+        String base64Photo,   // <-- aquí llega la foto en base64
+        String token) {
 
-        // Validaciones básicas
-        if (name == null || name.trim().isEmpty()) {
-            throw new RuntimeException("El nombre del producto no puede estar vacío");
-        }
-        if (price < 0) {
-            throw new RuntimeException("El precio no puede ser negativo");
-        }
-        if (stock < 0) {
-            throw new RuntimeException("El stock no puede ser negativo");
-        }
-
-        Product product = new Product();
-        product.setIduser(idusuario);
-        product.setName(name.trim());
-        product.setDescription(description != null ? description.trim() : null);
-        product.setPrice(price);
-        product.setStock(stock);
-        product.setPhoto(photo);
-
-        return productRepository.save(product);
+    // Validaciones básicas
+    if (name == null || name.trim().isEmpty()) {
+        throw new RuntimeException("El nombre del producto no puede estar vacío");
     }
+    if (price < 0) {
+        throw new RuntimeException("El precio no puede ser negativo");
+    }
+    if (stock < 0) {
+        throw new RuntimeException("El stock no puede ser negativo");
+    }
+
+    Product product = new Product();
+    product.setIduser(idusuario);
+    product.setName(name.trim());
+    product.setDescription(description != null ? description.trim() : null);
+    product.setPrice(price);
+    product.setStock(stock);
+
+    // 🔥 Convertir base64 → byte[] si viene
+    if (base64Photo != null && !base64Photo.isEmpty()) {
+        product.setPhoto(Base64.getDecoder().decode(base64Photo));
+    } else {
+        product.setPhoto(null);
+    }
+
+    return productRepository.save(product);
+}
 
 
     // Obtener un producto por ID
@@ -144,6 +180,70 @@ public class ProductService {
         productRepository.deleteById(id);
         return "Producto con ID " + id + " eliminado exitosamente";
     }
+     // Eliminar todos los productos de un usuario
+public String eliminarporUserid(Long idusuario, String token) {
+
+    try {
+        // Validar si el usuario existe antes de eliminar
+        Map<String, Object> usuario = usuarioClient.obtenerUsuarioPorId(idusuario, token);
+
+        System.out.println("Usuario encontrado: " + usuario);
+
+    } catch (RuntimeException e) {
+        // Si el WebClient devolvió 4xx o 5xx
+        throw new RuntimeException("Usuario no encontrado, no se pueden eliminar los productos", e);
+    }
+
+    // Optional: revisar si el usuario tiene productos antes de borrar
+    long count = productRepository.countByIduser(idusuario);
+
+    if (count == 0) {
+        return "El usuario no tiene productos para eliminar";
+    }
+
+    // Borrar todos los productos del usuario
+    productRepository.deleteByIduser(idusuario);
+
+    return "Productos eliminados correctamente";
+}
+
+    //eliminar stock(como si fuera compra)
+  public UpdateStockDto restarStockProducto(Long id, int cantidadARestar) {
+
+    if (id == null || id <= 0 || cantidadARestar < 0) {
+        return new UpdateStockDto("ERROR", null);
+    }
+
+    Product productoExistente = productRepository.findById(id)
+            .orElse(null);
+
+    if (productoExistente == null) {
+        return new UpdateStockDto("ERROR", null);
+    }
+
+    int stockActual = productoExistente.getStock();
+
+   
+    if (cantidadARestar > stockActual) {
+        return new UpdateStockDto("ERROR", productoExistente);
+    }
+
+    int stockNuevo = stockActual - cantidadARestar;
+
+   
+    if (stockNuevo == 0) {
+        productRepository.deleteById(id);
+        return new UpdateStockDto("ELIMINADO", null);
+    }
+
+    
+    productoExistente.setStock(stockNuevo);
+    Product actualizado = productRepository.save(productoExistente);
+
+    return new UpdateStockDto("ACTUALIZADO", actualizado);
+}
+
+
 
     public String obtenerFotoBase64(Product product) {
         if (product.getPhoto() == null) return null;

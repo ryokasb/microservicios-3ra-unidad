@@ -7,8 +7,12 @@ import org.springframework.stereotype.Service;
 
 import com.example.user.model.AuthResponse;
 import com.example.user.model.CambioContrasena;
+import com.example.user.model.PasswordReset;
 import com.example.user.model.Rol;
 import com.example.user.model.User;
+import com.example.user.model.Dto.ChangeusernameRequest;
+import com.example.user.model.Dto.UserUpdateResponse;
+import com.example.user.repository.PasswordRecoveryRepository;
 import com.example.user.repository.RoleRepository;
 import com.example.user.repository.UserRepository;
 
@@ -18,14 +22,93 @@ import jakarta.transaction.Transactional;
 @Service
 @Transactional
 public class UserService {
-  @Autowired
+    @Autowired
     private RoleRepository roleRepository;
     @Autowired
     private UserRepository usuarioRepository;
     @Autowired
     private PasswordEncoder passwordEncoder;
     @Autowired
+    private PasswordRecoveryService passwordRecoveryService;
+    @Autowired
+    private PasswordRecoveryRepository  passwordRecoveryRepository;
+    @Autowired
     private JwtUtil jwtUtil;
+
+     @Autowired
+    private JwtPasswordReset jwtPasswordReset;
+
+     @Autowired
+    private EmailService emailService;
+
+   // función de solicitud de cambio de contraseña (manda email con código)
+   public String solicitarRecuperacionContrasena(String correo) {
+
+    // 1. Buscar usuario por correo
+    User user = usuarioRepository.findByCorreo(correo.trim())
+            .orElseThrow(() -> new RuntimeException("No se encontró un usuario con ese correo"));
+
+    // 2. Crear solicitud de recuperación y obtener el código
+    PasswordReset solicitud = passwordRecoveryService.crearSolicitud(user.getCorreo());
+    String codigo = solicitud.getRecoveryCode();
+
+    // 3. Construir mensaje HTML
+    String mensaje = "<html>" +
+            "<body>" +
+            "<p>Hola <strong>" + user.getCorreo() + "</strong>,</p>" +
+            "<p>Para recuperar tu contraseña, usa este código:</p>" +
+            "<h2 style='font-size:22px;'>" + codigo + "</h2>" +
+            "<p>Este código expira en 10 minutos.</p>" +
+            "<p>Si no solicitaste este cambio, ignora este correo.</p>" +
+            "<br>" +
+            "<p>Saludos,<br>Equipo Duodeal</p>" +
+            "</body>" +
+            "</html>";
+
+    // 4. Enviar correo
+    emailService.enviarCorreo(user.getCorreo(), "Recuperación de contraseña DuoDeal", mensaje);
+
+    return "Se ha enviado un correo con instrucciones para recuperar la contraseña.";
+}
+
+    
+    // Confirmar recuperación / cambiar contraseña con código
+public String confirmarRecuperacionContrasena(String correo, String codigo, String nuevaContrasena, String confirmarContrasena) { 
+
+    // 1. Validar que las contraseñas coincidan
+    if (!nuevaContrasena.equals(confirmarContrasena)) {
+        throw new RuntimeException("Las contraseñas nuevas no coinciden");
+    }
+
+    // 2. Validar longitud
+    if (nuevaContrasena.length() < 6) {
+        throw new RuntimeException("La nueva contraseña debe tener al menos 6 caracteres");
+    }
+
+    // 3. Buscar usuario
+    User user = usuarioRepository.findByCorreo(correo.trim())
+            .orElseThrow(() -> new RuntimeException("No se encontró un usuario con ese correo"));
+
+    // 4. Validar código usando tu función
+    boolean codigoValido = passwordRecoveryService.validarCodigo(correo, codigo);
+
+    if (!codigoValido) {
+        throw new RuntimeException("Código inválido o expirado");
+    }
+
+    // 5. Actualizar la contraseña
+    user.setPassword(passwordEncoder.encode(nuevaContrasena));
+    usuarioRepository.save(user);
+
+    // 6. Eliminar el registro usado (buena práctica)
+    PasswordReset registro = passwordRecoveryRepository.findByEmailAndRecoveryCode(correo, codigo);
+    if (registro != null) {
+        passwordRecoveryRepository.delete(registro);
+    }
+
+    return "Contraseña actualizada exitosamente.";
+}
+
 
     // Método para autenticar usuario (login) - CON TOKEN
     public AuthResponse autenticarUsuario(String mail, String password) {
@@ -150,23 +233,76 @@ public class UserService {
         return usuarioRepository.save(user);
     }
 
-    //eliminar usuario por id
-    public String eliminarusuarioporid(Long id){
-        if (id == null || id <= 0) {
-            throw new RuntimeException("ID de usuario inválido");
-        }
-        if(!usuarioRepository.existsById(id)){
-            throw new RuntimeException("El usuario con ID " + id + " no existe");
-        }
-        usuarioRepository.deleteById(id);
+   // Eliminar usuario por ID
+public String eliminarusuarioporid(Long id) {
 
-        return "El usuario con ID " + id + " se ha eliminado exitosamente";
+    if (id == null || id <= 0) {
+        throw new IllegalArgumentException("ID de usuario inválido");
     }
+
+    if (!usuarioRepository.existsById(id)) {
+        throw new RuntimeException("El usuario con ID " + id + " no existe");
+    }
+
+    usuarioRepository.deleteById(id);
+
+    return "El usuario con ID " + id + " se ha eliminado exitosamente";
+}
+
+
+
+// Cambiar nombre de usuario
+public UserUpdateResponse cambiarNombreUsuario(Long id, ChangeusernameRequest request) {
+
+    // Validar id
+    if (id == null || id <= 0) {
+        throw new IllegalArgumentException("ID de usuario inválido");
+    }
+
+    // Validar nuevo nombre
+    String nombreNuevo = request.getNuevoNombre();
+    if (nombreNuevo == null || nombreNuevo.trim().isEmpty()) {
+        throw new IllegalArgumentException("El nuevo nombre de usuario no puede estar vacío");
+    }
+   
+
+    // Validar existencia de usuario
+    User usuarioExistente = usuarioRepository.findById(id)
+            .orElseThrow(() -> new RuntimeException("Usuario no encontrado con ID: " + id));
+
+    if (nombreNuevo.equals(usuarioExistente.getUsername())) {
+        throw new IllegalArgumentException("El nuevo nombre no puede ser igual al anterior");
+    }
+
+    if (nombreNuevo.contains(" ")) {
+    throw new IllegalArgumentException("El nombre de usuario no puede contener espacios");
+    }
+
+   
+
+    // Validar si el nombre ya está en uso
+    if (!usuarioExistente.getUsername().equals(nombreNuevo)
+            && usuarioRepository.existsByUsername(nombreNuevo)) {
+        throw new IllegalArgumentException("El nombre de usuario '" + nombreNuevo + "' ya está en uso");
+    }
+
+    // Actualizar
+    usuarioExistente.setUsername(nombreNuevo);
+    usuarioRepository.save(usuarioExistente);
+
+    // Respuesta
+    return new UserUpdateResponse(
+            usuarioExistente.getId(),
+            usuarioExistente.getUsername(),
+            usuarioExistente.getCorreo()
+    );
+}
+
 
     //actualizar datos usuario
     public User actualizarUsuario(Long id, User datosnuevos) {
         if (id == null || id <= 0) {
-            throw new RuntimeException("ID de usuario inválido");
+            throw new RuntimeException( "ID de usuario inválido");
         }
         
         User usuarioExistente = usuarioRepository.findById(id)

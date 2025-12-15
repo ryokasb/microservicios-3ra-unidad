@@ -54,7 +54,11 @@
             <version>${jjwt.version}</version>
             <scope>runtime</scope>
         </dependency>
-
+        <!-- dependencia para mandar email-->
+         <dependency>
+           <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+         </dependency>
         <!-- Spring HATEOAS -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -16,11 +16,17 @@ import org.springframework.web.bind.annotation.*;
 import com.example.user.model.AuthResponse;
 import com.example.user.model.CambioContrasena;
 import com.example.user.model.InicioSesion;
+import com.example.user.model.RestablecerContrasenaRequest;
 import com.example.user.model.Rol;
+import com.example.user.model.SolicitarResetRequest;
 import com.example.user.model.User;
+import com.example.user.model.Dto.ChangeusernameRequest;
+import com.example.user.model.Dto.UserUpdateResponse;
+import com.example.user.service.JwtPasswordReset;
 import com.example.user.service.JwtUtil;
 import com.example.user.service.RoleService;
 import com.example.user.service.UserService;
+import com.example.user.webclient.ProductClient;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -45,6 +51,10 @@ public class UsuarioController {
     private RoleService roleService;
     @Autowired
     private JwtUtil jwtUtil;
+    @Autowired
+    private ProductClient productClient;
+    @Autowired
+    private JwtPasswordReset JwtUtilPassword;
 
     @Operation(summary = "Iniciar sesión", description = "Autentica un usuario y devuelve un token JWT")
     @ApiResponses(value = {
@@ -315,42 +325,128 @@ public ResponseEntity<?> crearUsuario(@RequestBody User user) {
 }
 
     @Operation(summary = "Eliminar usuario", description = "Elimina un usuario del sistema por su ID")
-    @ApiResponses(value = {
-        @ApiResponse(responseCode = "200", description = "Usuario eliminado correctamente"),
-        @ApiResponse(responseCode = "404", description = "Usuario no encontrado"),
-        @ApiResponse(responseCode = "500", description = "Error interno del servidor")
-    })
-    @DeleteMapping("/users/{id}")
-    public ResponseEntity<?> eliminarUsuario(@PathVariable Long id, HttpServletRequest request) {
-        try {
-            String token = jwtUtil.extraerTokenDelHeader(request.getHeader("Authorization"));
-            if (token == null || !jwtUtil.esTokenValido(token)) {
-                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                        .body(new ErrorResponse("Acceso no autorizado", "Token inválido o faltante"));
-            }
-            
-            String rol = jwtUtil.obtenerRol(token);
-            if (!"ADMIN".equals(rol)) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                        .body(new ErrorResponse("Acceso denegado", "Se requiere rol de ADMIN"));
-            }
-
-            String mensaje = usuarioService.eliminarusuarioporid(id);
-            
-            SuccessResponse response = new SuccessResponse(mensaje);
-            EntityModel<SuccessResponse> responseModel = EntityModel.of(response);
-            responseModel.add(linkTo(methodOn(UsuarioController.class).obtenerUsuarios(null)).withRel("all-users"));
-            responseModel.add(linkTo(methodOn(UsuarioController.class).crearUsuario(null)).withRel("create-user"));
-            
-            return ResponseEntity.ok(responseModel);
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(new ErrorResponse("Error al eliminar usuario", e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new ErrorResponse("Error interno del servidor", e.getMessage()));
+@ApiResponses(value = {
+    @ApiResponse(responseCode = "200", description = "Usuario eliminado correctamente"),
+    @ApiResponse(responseCode = "404", description = "Usuario no encontrado"),
+    @ApiResponse(responseCode = "500", description = "Error interno del servidor")
+})
+@DeleteMapping("/users/{id}")
+public ResponseEntity<?> eliminarUsuario(@PathVariable Long id, HttpServletRequest request) {
+    try {
+        // Validar token
+        String token = jwtUtil.extraerTokenDelHeader(request.getHeader("Authorization"));
+        if (token == null || !jwtUtil.esTokenValido(token)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("Acceso no autorizado", "Token inválido o faltante"));
         }
+
+        // Validar rol
+        String rol = jwtUtil.obtenerRol(token);
+        if (!"ADMIN".equals(rol)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new ErrorResponse("Acceso denegado", "Se requiere rol de ADMIN"));
+        }
+
+        // 👉 NUEVO: eliminar los productos del usuario ANTES de eliminarlo
+        try {
+            String respuestaProductos = productClient.eliminarProductosPorUserId(id, token);
+            System.out.println("Productos eliminados: " + respuestaProductos);
+        } catch (Exception e) {
+            System.out.println("Advertencia: No se pudieron eliminar productos del usuario " + id +
+                               " -> " + e.getMessage());
+        }
+
+        // Eliminar usuario
+        String mensaje = usuarioService.eliminarusuarioporid(id);
+
+        // Crear respuesta con HATEOAS
+        SuccessResponse response = new SuccessResponse(mensaje);
+        EntityModel<SuccessResponse> responseModel = EntityModel.of(response);
+
+        responseModel.add(linkTo(methodOn(UsuarioController.class).obtenerUsuarios(null)).withRel("all-users"));
+        responseModel.add(linkTo(methodOn(UsuarioController.class).crearUsuario(null)).withRel("create-user"));
+
+        return ResponseEntity.ok(responseModel);
+
+    } catch (RuntimeException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ErrorResponse("Error al eliminar usuario", e.getMessage()));
+    } catch (Exception e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("Error interno del servidor", e.getMessage()));
     }
+}
+
+  
+    @Operation(
+    summary = "Solicitar restablecimiento de contraseña",
+    description = "Genera y envía un correo con un token de recuperación para restablecer la contraseña"
+)
+@ApiResponses(value = {
+    @ApiResponse(responseCode = "200", description = "Correo enviado exitosamente"),
+    @ApiResponse(responseCode = "400", description = "Correo inválido o usuario no encontrado"),
+    @ApiResponse(responseCode = "500", description = "Error interno del servidor")
+})
+@PostMapping("/auth/request-reset")
+public ResponseEntity<?> solicitarRestablecimiento(@RequestBody SolicitarResetRequest request) {
+    try {
+
+        usuarioService.solicitarRecuperacionContrasena(request.getCorreo());
+
+        SuccessResponse response = new SuccessResponse("Correo enviado correctamente para restablecer la contraseña");
+
+        EntityModel<SuccessResponse> model = EntityModel.of(response);
+        model.add(linkTo(methodOn(UsuarioController.class).iniciarSesion(null)).withRel("login"));
+
+        return ResponseEntity.ok(model);
+
+    } catch (RuntimeException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse("Error al solicitar recuperación", e.getMessage()));
+    } catch (Exception e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("Error interno del servidor", e.getMessage()));
+    }
+}
+
+
+
+ @Operation(summary = "Restablecer contraseña", description = "Actualiza la contraseña usando el token de recuperación enviado en el header")
+@ApiResponses(value = {
+    @ApiResponse(responseCode = "200", description = "Contraseña restablecida exitosamente"),
+    @ApiResponse(responseCode = "400", description = "Contraseñas no coinciden"),
+    @ApiResponse(responseCode = "401", description = "Token inválido o faltante"),
+    @ApiResponse(responseCode = "404", description = "Usuario no encontrado"),
+    @ApiResponse(responseCode = "500", description = "Error interno del servidor")
+})
+@PostMapping("/auth/reset-password")
+public ResponseEntity<?> restablecerContrasena(
+        @RequestBody RestablecerContrasenaRequest request) {
+    try {
+
+        // Llamar al servicio para confirmar recuperación de contraseña
+        usuarioService.confirmarRecuperacionContrasena(
+                request.getCorreo(),
+                request.getCodigo(),
+                request.getNuevaContrasena(),
+                request.getConfirmarContrasena()
+        );
+
+        SuccessResponse response = new SuccessResponse("Contraseña restablecida correctamente");
+        EntityModel<SuccessResponse> model = EntityModel.of(response);
+        model.add(linkTo(methodOn(UsuarioController.class).iniciarSesion(null)).withRel("login"));
+
+        return ResponseEntity.ok(model);
+
+    } catch (RuntimeException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse("Error al restablecer contraseña", e.getMessage()));
+    } catch (Exception e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("Error interno del servidor", e.getMessage()));
+    }
+}
+
 
     @Operation(summary = "Actualizar usuario", description = "Permite actualizar los datos de un usuario existente")
     @ApiResponses(value = {
@@ -389,6 +485,60 @@ public ResponseEntity<?> crearUsuario(@RequestBody User user) {
                     .body(new ErrorResponse("Error interno del servidor", e.getMessage()));
         }
     }
+
+    @Operation(
+        summary = "Cambiar nombre de usuario",
+        description = "Permite a un usuario cambiar su nombre de usuario"
+)
+@ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Nombre de usuario cambiado correctamente"),
+        @ApiResponse(responseCode = "400", description = "Datos inválidos o nombre ya en uso"),
+        @ApiResponse(responseCode = "401", description = "Acceso no autorizado"),
+        @ApiResponse(responseCode = "404", description = "Usuario no encontrado"),
+        @ApiResponse(responseCode = "500", description = "Error interno del servidor")
+})
+@PutMapping("/users/{id}/change-username")
+public ResponseEntity<?> cambiarNombreUsuario(
+        @PathVariable Long id,
+        @RequestBody ChangeusernameRequest nuevoNombre,
+        HttpServletRequest request) {
+
+    try {
+        // Validar token
+        String token = jwtUtil.extraerTokenDelHeader(request.getHeader("Authorization"));
+        if (token == null || !jwtUtil.esTokenValido(token)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ErrorResponse("Acceso no autorizado", "Token inválido o faltante"));
+        }
+
+        // Servicio
+        UserUpdateResponse usuarioActualizado =
+                usuarioService.cambiarNombreUsuario(id, nuevoNombre);
+
+        EntityModel<UserUpdateResponse> userModel = EntityModel.of(usuarioActualizado);
+        userModel.add(linkTo(methodOn(UsuarioController.class).obtenerUsuario(id, request)).withSelfRel());
+        userModel.add(linkTo(methodOn(UsuarioController.class).obtenerUsuarios(request)).withRel("all-users"));
+
+        return ResponseEntity.ok(userModel);
+
+    } catch (IllegalArgumentException e) {
+        // Datos inválidos
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse("Datos inválidos", e.getMessage()));
+
+    } catch (RuntimeException e) {
+        // Usuario no encontrado
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ErrorResponse("Usuario no encontrado", e.getMessage()));
+
+    } catch (Exception e) {
+        // Error inesperado
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("Error interno del servidor", e.getMessage()));
+    }
+}
+
+
 
     @Schema(description = "Respuesta de error estandarizada")
     public static class ErrorResponse {

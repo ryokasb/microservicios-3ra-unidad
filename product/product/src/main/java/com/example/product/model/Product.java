@@ -45,7 +45,7 @@ public class Product {
     @Column(nullable = false)
     @Schema(description = "Cantidad disponible en stock", example = "50")
     private int stock;
-
+    
     @Lob
     @Column(name = "photo", columnDefinition = "LONGBLOB")
     @Schema(description = "Foto del producto en formato binario (LONGBLOB)")

@@ -10,8 +10,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import com.example.product.model.Dto.DeleteByiduserDto;
 import com.example.product.model.Dto.ProductoDTO;
-
+import com.example.product.model.Dto.UpdateStockDto;
 import com.example.product.model.Product;
 import com.example.product.Service.ProductService;
 
@@ -154,6 +155,37 @@ public class ProductController {
                     .body(new ErrorResponse("Error interno del servidor", e.getMessage()));
         }
     }
+   @Operation(summary = "Restar stock (como compra)", description = "Resta stock a un producto y lo elimina si queda en 0")
+@ApiResponses(value = {
+    @ApiResponse(responseCode = "200", description = "Stock actualizado o producto eliminado"),
+    @ApiResponse(responseCode = "400", description = "Datos inválidos"),
+    @ApiResponse(responseCode = "404", description = "Producto no encontrado"),
+    @ApiResponse(responseCode = "500", description = "Error interno del servidor")
+})
+@PutMapping("/{id}/restarstock/{cantidad}")
+public ResponseEntity<UpdateStockDto> restarStock(
+        @PathVariable Long id,
+        @PathVariable int cantidad) {
+
+    try {
+        UpdateStockDto resultado = productService.restarStockProducto(id, cantidad);
+
+        if ("ERROR".equals(resultado.getStatus())) {
+            return ResponseEntity.badRequest().body(resultado);
+        }
+
+        if (resultado.getProducto() == null && !"ELIMINADO".equals(resultado.getStatus())) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(resultado);
+        }
+
+        return ResponseEntity.ok(resultado);
+
+    } catch (Exception e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new UpdateStockDto("ERROR", null));
+    }
+}
+
 
     @Operation(summary = "Eliminar producto", description = "Elimina un producto del sistema por su ID")
     @ApiResponses(value = {
@@ -178,6 +210,36 @@ public class ProductController {
                     .body(new ErrorResponse("Error interno del servidor", e.getMessage()));
         }
     }
+    @Operation(summary = "Eliminar todos los productos de un usuario", 
+           description = "Elimina todos los productos asociados a un usuario específico")
+    @ApiResponses(value = {
+    @ApiResponse(responseCode = "200", description = "Productos eliminados correctamente"),
+    @ApiResponse(responseCode = "400", description = "ID de usuario inválido o usuario no encontrado"),
+    @ApiResponse(responseCode = "500", description = "Error interno del servidor")
+   })
+   @DeleteMapping("/user/{idusuario}")
+   public ResponseEntity<?> eliminarProductosPorUsuario(
+        @PathVariable Long idusuario,
+        @RequestBody DeleteByiduserDto token) {
+
+    try {
+        String mensaje = productService.eliminarporUserid(idusuario, token.getToken());
+
+        SuccessResponse response = new SuccessResponse(mensaje);
+        EntityModel<SuccessResponse> model = EntityModel.of(response);
+        model.add(linkTo(methodOn(ProductController.class).listarProductos()).withRel("all-products"));
+
+        return ResponseEntity.ok(model);
+
+    } catch (RuntimeException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse("Error al eliminar productos", e.getMessage()));
+    } catch (Exception e) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(new ErrorResponse("Error interno del servidor", e.getMessage()));
+    }
+   }
+
 
     @Schema(description = "Respuesta de error estandarizada")
     public static class ErrorResponse {
